@@ -1,0 +1,5 @@
+import { ACHIEVEMENTS } from '../data/achievements';
+import type { SaveData, RunStats } from '../types/game';
+
+export function updateAchievements(save:SaveData,run?:RunStats):string[]{const unlocked:string[]=[];for(const definition of ACHIEVEMENTS){const record=save.achievements[definition.id]??{id:definition.id,progress:0};let progress=record.progress;if(definition.stat){const value=(save.stats as unknown as Record<string,number>)[definition.stat];if(typeof value==='number'&&Number.isFinite(value))progress=Math.max(progress,value);}if(run){if(definition.id==='accuracy70'&&run.shotsFired>0&&run.shotsHit/run.shotsFired>=0.7)progress=1;if(definition.id==='pistolRun'&&run.victory){const total=Object.values(run.weaponsUsed).reduce((a,b)=>a+b,0);if(total>0&&run.weaponsUsed.pistol/total>=0.7)progress=1;}}
+    if(definition.id==='maxUpgrade'&&Object.values(save.permanent).some(level=>level>=5))progress=1;if(progress>=definition.target&&!record.completedAt){record.completedAt=new Date().toISOString();unlocked.push(definition.name);}record.progress=progress;save.achievements[definition.id]=record;}return unlocked;}

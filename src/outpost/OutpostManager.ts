@@ -1,0 +1,40 @@
+import * as THREE from 'three';
+import { AudioManager } from '../core/AudioManager';
+import { EnemyManager } from '../enemies/EnemyManager';
+import { PlayerStats } from '../player/PlayerStats';
+import type { MapSystems } from '../world/OutpostMap';
+import { ParticleManager } from '../visuals/ParticleManager';
+import { PALETTE } from '../visuals/LowPolyMaterialFactory';
+import { PowerGrid } from './PowerGrid';
+import { AUTO_TURRET } from './AutoTurret';
+import { ELECTRIC_FENCE } from './ElectricFence';
+import { HEALING_STATION } from './HealingStation';
+import { UpgradeManager } from '../upgrades/UpgradeManager';
+
+export class OutpostManager {
+  readonly power = new PowerGrid(); private turretTimer=0; private scanTimer=0; private healingCharge=HEALING_STATION.chargePerWave; private fenceCooldown=new WeakMap<object,number>();
+  onTurretDamage?:(damage:number)=>void;
+  constructor(private systems:MapSystems,private enemies:EnemyManager,private player:PlayerStats,private upgrades:UpgradeManager,private particles:ParticleManager,private audio:AudioManager){}
+  applyVisuals():void{
+    const p=this.power.allocation;this.systems.turretPivot.visible=p.turret;this.systems.fenceSegments.forEach(s=>{s.userData.glow.visible=p.fence;});
+    this.systems.healingStation.userData.screen.material.emissiveIntensity=p.healing?1.8:0.05;this.systems.ammoStation.userData.screen.material.emissiveIntensity=p.ammo?1.8:0.05;
+    this.systems.scannerLights.forEach(group=>{group.userData.light.intensity=p.scanner?2.2:0;});
+  }
+  beginWave():void{this.healingCharge=HEALING_STATION.chargePerWave*this.upgrades.multiplier('healing',0.25);if(this.upgrades.level('shield')>0)this.player.addArmor(25*this.upgrades.level('shield'));}
+  betweenWaveService(restock:()=>void):void{if(this.power.isActive('healing'))this.player.heal(HEALING_STATION.betweenWave*(1+this.player.permanent.healingEfficiency*0.08)*this.upgrades.multiplier('healing',0.25));if(this.power.isActive('ammo'))restock();}
+  update(delta:number,playerPosition:any):void{
+    this.turretTimer-=delta;this.scanTimer-=delta;
+    if(this.power.isActive('turret'))this.updateTurret();
+    if(this.power.isActive('fence'))this.updateFence(delta);
+    if(this.power.isActive('healing')&&this.healingCharge>0&&Math.hypot(playerPosition.x+9,playerPosition.z+2)<HEALING_STATION.range&&this.player.health<this.player.maxHealth){const amount=Math.min(this.healingCharge,HEALING_STATION.combatRate*delta*this.upgrades.multiplier('healing',0.25));this.healingCharge-=this.player.heal(amount);}
+    if(this.power.isActive('scanner')&&this.scanTimer<=0){for(const enemy of this.enemies.enemies){if(enemy.alive&&enemy.group.position.distanceTo(playerPosition)<18){enemy.weakPoint.scale.setScalar(1.45);window.setTimeout(()=>enemy.weakPoint?.scale.setScalar(1),800);}}this.scanTimer=4;}
+  }
+  private updateTurret():void{
+    const turret=this.systems.turretPivot;const target=this.enemies.nearest(turret.position,AUTO_TURRET.range);if(!target)return;
+    const direction=target.group.position.clone().sub(turret.position);turret.rotation.y=Math.atan2(direction.x,direction.z);
+    if(this.turretTimer<=0){const damage=AUTO_TURRET.damage*(1+this.player.permanent.turretEfficiency*0.08)*this.upgrades.multiplier('turret',0.2);target.takeDamage(damage,false);const muzzle=turret.localToWorld(new THREE.Vector3(0,-0.25,-3.2));this.particles.burst(muzzle,PALETTE.orange,3,2);this.audio.play('turret');this.turretTimer=1/AUTO_TURRET.fireRate;this.onTurretDamage?.(damage);}
+  }
+  private updateFence(delta:number):void{
+    for(const enemy of this.enemies.enemies){if(!enemy.alive)continue;const previous=this.fenceCooldown.get(enemy)??0;if(previous>0){this.fenceCooldown.set(enemy,previous-delta);continue;}const p=enemy.group.position;const near=Math.abs(Math.abs(p.x)-ELECTRIC_FENCE.boundary)<0.8||Math.abs(Math.abs(p.z)-ELECTRIC_FENCE.boundary)<0.8;if(near){const damage=ELECTRIC_FENCE.damage*this.upgrades.multiplier('fence',0.25);enemy.takeDamage(damage,false);enemy.speed*=ELECTRIC_FENCE.slow;window.setTimeout(()=>{if(enemy.alive)enemy.speed/=ELECTRIC_FENCE.slow;},500);this.particles.burst(enemy.group.position.clone().add(new THREE.Vector3(0,1,0)),PALETTE.cyan,6,3);this.fenceCooldown.set(enemy,ELECTRIC_FENCE.cooldown);}}
+  }
+}
