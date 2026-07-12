@@ -18,7 +18,7 @@ void import('@capacitor/app').then(({ App }) => {
     }
   });
   void App.addListener('appStateChange', ({ isActive }: { isActive: boolean }) => {
-    if (!isActive) game.handleBackButton();
+    if (!isActive) game.pauseForBackground();
   });
 }).catch(() => undefined);
 

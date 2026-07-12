@@ -17,6 +17,7 @@ export class EnemyManager {
   readonly enemies: Enemy[] = [];
   private readonly navigation: EnemyNavigation;
   private readonly center = new THREE.Vector3(); private readonly weak = new THREE.Vector3();
+  private readonly timers = new Set<number>(); private disposed = false;
   onPlayerDamage?: (damage: number, source: any) => void;
   onEnemyKilled?: (enemy: Enemy) => void;
   onBossHealth?: (ratio: number, name: string) => void;
@@ -36,6 +37,7 @@ export class EnemyManager {
   }
 
   update(delta: number, playerPosition: any, wave: number, difficulty: Difficulty): void {
+    if (this.disposed) return;
     const positions = this.enemies.filter(e => e.alive).map(e => e.group.position);
     for (let i = this.enemies.length - 1; i >= 0; i -= 1) {
       const enemy = this.enemies[i]!;
@@ -110,7 +112,8 @@ export class EnemyManager {
 
   aliveCount(): number { return this.enemies.filter(e => e.alive).length; }
   remainingBoss(): Enemy | undefined { return this.enemies.find(e => e.alive && e.kind === 'boss'); }
-  clear(): void { this.enemies.forEach(enemy => this.scene.remove(enemy.group)); this.enemies.length = 0; this.onBossHealth?.(0, ''); }
+  clear(): void { this.enemies.forEach(enemy => { this.scene.remove(enemy.group); enemy.dispose(); }); this.enemies.length = 0; this.onBossHealth?.(0, ''); }
+  dispose(): void { if (this.disposed) return; this.disposed = true; for (const timer of this.timers) window.clearTimeout(timer); this.timers.clear(); this.clear(); this.onPlayerDamage = undefined; this.onEnemyKilled = undefined; this.onBossHealth = undefined; }
 
   private updateMelee(enemy: Enemy, player: any, distance: number, delta: number, positions: any[]): void {
     const range = enemy.kind === 'brute' ? 2.4 : 1.25;
@@ -176,7 +179,7 @@ export class EnemyManager {
   private updatePhases(enemy: Enemy, wave: number): void {
     if (enemy.kind !== 'boss') return;
     const ratio = enemy.healthRatio(); const nextPhase = wave === 15 ? (ratio < 0.25 ? 4 : ratio < 0.5 ? 3 : ratio < 0.75 ? 2 : 1) : (ratio < 0.5 ? 2 : 1);
-    if (nextPhase !== enemy.phase) { enemy.phase = nextPhase; enemy.specialTimer = 0.5; enemy.armorActive = true; enemy.weakPoint.visible = false; this.particles.burst(enemy.group.position.clone().add(new THREE.Vector3(0, 2, 0)), PALETTE.cyan, 24, 6); window.setTimeout(() => { if (enemy.alive) { enemy.armorActive = false; enemy.weakPoint.visible = true; } }, 2800); }
+    if (nextPhase !== enemy.phase) { enemy.phase = nextPhase; enemy.specialTimer = 0.5; enemy.armorActive = true; enemy.weakPoint.visible = false; this.particles.burst(enemy.group.position.clone().add(new THREE.Vector3(0, 2, 0)), PALETTE.cyan, 24, 6); this.schedule(() => { if (enemy.alive) { enemy.armorActive = false; enemy.weakPoint.visible = true; } }, 2800); }
   }
 
   private updateStuck(enemy: Enemy, delta: number): void {
@@ -184,8 +187,10 @@ export class EnemyManager {
     if (enemy.stuckTimer > 2.5) { const angle = Math.random() * Math.PI * 2; enemy.group.position.x += Math.cos(angle) * 2; enemy.group.position.z += Math.sin(angle) * 2; this.navigation.resolve(enemy.group.position, enemy.radius); enemy.stuckTimer = 0; }
   }
 
+  private schedule(callback: () => void, milliseconds: number): void { const timer = window.setTimeout(() => { this.timers.delete(timer); if (!this.disposed) callback(); }, milliseconds); this.timers.add(timer); }
+
   private remove(index: number, difficulty: Difficulty): void {
     const enemy = this.enemies[index]!; this.scene.remove(enemy.group); this.audio.play('enemyDeath'); this.particles.burst(enemy.group.position.clone().add(new THREE.Vector3(0, 0.6, 0)), enemy.kind === 'spitter' ? PALETTE.acid : PALETTE.red, enemy.kind === 'boss' ? 28 : 10, enemy.kind === 'boss' ? 8 : 4);
-    this.pickups.drop(enemy.group.position, enemy.kind, difficulty, 1); this.onEnemyKilled?.(enemy); this.enemies.splice(index, 1); if (enemy.kind === 'boss') this.onBossHealth?.(0, '');
+    this.pickups.drop(enemy.group.position, enemy.kind, difficulty, 1); this.onEnemyKilled?.(enemy); this.enemies.splice(index, 1); enemy.dispose(); if (enemy.kind === 'boss') this.onBossHealth?.(0, '');
   }
 }
