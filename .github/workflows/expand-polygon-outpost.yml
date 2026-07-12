@@ -1,23 +1,27 @@
 name: Expand Polygon Outpost source
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/polygon-outpost-v1
-    paths:
-      - .publish/finalize
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 permissions:
   contents: write
 
 jobs:
   expand:
+    if: github.head_ref == 'agent/polygon-outpost-v1'
     runs-on: ubuntu-latest
     steps:
       - name: Check out source branch
         uses: actions/checkout@v4
         with:
           ref: agent/polygon-outpost-v1
+          token: ${{ github.token }}
 
       - name: Reconstruct editable source
         shell: bash
