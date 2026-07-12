@@ -40,11 +40,11 @@ jobs:
           npm run test
           npm run build
 
-      - name: Commit verified Pass 1 changes
+      - name: Commit verified Pass 1 source
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/pass1_apply.py .github/workflows/apply-pass1.yml .github/workflows/pass1-pr-apply.yml
-          git add -A
+          git checkout HEAD -- .github/workflows/ci.yml .github/workflows/deploy-pages.yml
+          git add package-lock.json src/core/Game.ts src/main.ts src/ui/UIManager.ts src/enemies/EnemyManager.ts
           git commit -m "fix: stabilize run lifecycle and cleanup"
           git push origin HEAD:${{ github.head_ref }}
