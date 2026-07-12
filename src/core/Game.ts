@@ -29,6 +29,7 @@ import { calculateWeaponDamage } from '../utils/combatMath';
 import { calculateRunCredits } from '../utils/rewards';
 import { updateAchievements } from '../upgrades/AchievementManager';
 import { UnavailableAdService } from '../monetization/AdService';
+import { resolveBackAction, shouldPauseForBackground, SingleFlightGuard, type RunState } from './RunLifecycle';
 
 interface ActiveRun {
   id: string;
@@ -43,7 +44,7 @@ interface ActiveRun {
   waves: WaveManager;
   outpost: OutpostManager;
   stats: RunStats;
-  state: 'playing' | 'paused' | 'between' | 'ending';
+  state: RunState;
   bossRatio?: number;
   bossName?: string;
   lastKillAt: number;
@@ -72,6 +73,8 @@ export class Game {
   private loop!: GameLoop;
   private run?: ActiveRun;
   private menuTime = 0;
+  private initialized = false;
+  private readonly startGuard = new SingleFlightGuard();
 
   constructor(private readonly host: HTMLElement) {
     this.canvas = document.createElement('canvas');
@@ -80,6 +83,8 @@ export class Game {
   }
 
   async initialize(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
     await this.save.load();
     this.sceneManager = new SceneManager(this.canvas, this.save.value.settings);
     this.map = new OutpostMap(this.materials);
@@ -102,12 +107,13 @@ export class Game {
       onSettings: (settings) => this.applySettings(settings),
       onTutorial: () => this.showTutorial(false),
       onRevive: () => this.revive(),
+      onResetProgress: () => this.returnToMenu(),
     });
     this.sceneManager.camera.position.set(28, 18, 28);
     this.sceneManager.camera.lookAt(0, 2, 0);
     this.canvas.addEventListener('click', () => { void this.audio.unlock().then(() => this.audio.startAmbient()); if (this.run?.state === 'playing') this.input.requestPointerLock(); });
-    document.addEventListener('visibilitychange', () => { if (document.hidden && this.run?.state === 'playing') this.pause(); });
-    window.addEventListener('blur', () => { if (this.run?.state === 'playing') this.pause(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.pauseForBackground(); });
+    window.addEventListener('blur', () => this.pauseForBackground());
     this.createRotateOverlay();
     this.loop = new GameLoop((delta, now) => this.update(delta, now), () => this.sceneManager.render());
     this.loop.start();
@@ -115,15 +121,21 @@ export class Game {
   }
 
   handleBackButton(): boolean {
-    if (this.run?.deathDialog) { this.run.deathDialog.remove(); this.run.deathDialog = undefined; return true; }
-    if (this.run?.state === 'playing') { this.pause(); return true; }
-    if (this.run?.state === 'paused') { this.resume(); return true; }
-    if (this.run?.state === 'between') return true;
+    const action = resolveBackAction(this.run?.state, Boolean(this.run?.deathDialog));
+    if (action === 'keep-death-dialog' || action === 'consume') return true;
+    if (action === 'pause') { this.pause(); return true; }
+    if (action === 'resume') { this.resume(); return true; }
     return this.ui.handleBack();
   }
 
+  pauseForBackground(): void {
+    if (shouldPauseForBackground(this.run?.state)) this.pause();
+  }
+
   private async startRun(difficulty: Difficulty): Promise<void> {
-    await this.audio.unlock(); this.audio.startAmbient(); this.abandonRun();
+    if (!this.startGuard.tryEnter()) return;
+    try {
+      await this.audio.unlock(); this.audio.startAmbient(); this.abandonRun();
     const upgrades = new UpgradeManager();
     const playerStats = new PlayerStats(this.save.value.permanent, upgrades);
     const playerCamera = new PlayerCamera(this.sceneManager.camera, this.save.value.settings);
@@ -140,7 +152,10 @@ export class Game {
     this.run = { id: crypto.randomUUID(), difficulty, upgrades, playerStats, player, weapons, projectiles, pickups, enemies, waves, outpost, stats, state: 'between', lastKillAt: 0, combo: 0, damageAtWaveStart: 0 };
     this.wireRun(this.run);
     this.ui.hideRoot(); this.hud.show(true); this.mobile.show(false);
-    if (!this.save.value.tutorialComplete) this.showTutorial(true); else this.showPreparation();
+      if (!this.save.value.tutorialComplete) this.showTutorial(true); else this.showPreparation();
+    } finally {
+      this.startGuard.leave();
+    }
   }
 
   private wireRun(run: ActiveRun): void {
@@ -172,8 +187,9 @@ export class Game {
   }
 
   private startWave(): void {
-    const run = this.run; if (!run) return;
+    const run = this.run; if (!run || run.state !== 'between') return;
     if (run.waves.wave === 0 || !run.waves.active) run.waves.startNext();
+    this.input.resetAll();
     run.state = 'playing'; this.hud.show(true); this.mobile.show(true); this.ui.closePause();
     this.input.requestPointerLock();
   }
@@ -267,8 +283,8 @@ export class Game {
   private applyUpgrade(id: string): void { const run = this.run; if (!run) return; run.upgrades.apply(id); run.playerStats.applyUpgrade(id); }
   private setPower(id: PowerSystemId, active: boolean): boolean { const run = this.run; if (!run) return false; const ok = run.outpost.power.set(id, active); if (ok) run.outpost.applyVisuals(); return ok; }
 
-  private pause(): void { const run = this.run; if (!run || run.state !== 'playing') return; run.state = 'paused'; this.mobile.show(false); if (document.pointerLockElement) document.exitPointerLock(); this.ui.showPause(run.upgrades.stacks); }
-  private resume(): void { const run = this.run; if (!run || run.state !== 'paused') return; run.state = 'playing'; this.ui.closePause(); this.mobile.show(true); this.input.requestPointerLock(); }
+  private pause(): void { const run = this.run; if (!run || run.state !== 'playing') return; run.state = 'paused'; this.mobile.show(false); this.input.resetAll(); if (document.pointerLockElement) document.exitPointerLock(); this.ui.showPause(run.upgrades.stacks); }
+  private resume(): void { const run = this.run; if (!run || run.state !== 'paused' || run.deathDialog) return; this.input.resetAll(); run.state = 'playing'; this.ui.closePause(); this.mobile.show(true); this.input.requestPointerLock(); }
 
   private handleDeath(): void {
     const run = this.run; if (!run || run.deathDialog || run.state === 'ending') return; run.state = 'paused'; this.mobile.show(false); if (document.pointerLockElement) document.exitPointerLock();
@@ -292,7 +308,17 @@ export class Game {
   }
 
   private returnToMenu(): void { this.abandonRun(); this.ui.showRoot(); this.ui.showMain(); this.hud.show(false); this.mobile.show(false); this.sceneManager.scene.add(this.sceneManager.camera); this.sceneManager.camera.position.set(28, 18, 28); }
-  private abandonRun(): void { if (!this.run) return; this.run.deathDialog?.remove(); this.run.enemies.clear(); this.run.projectiles.clear(); this.run.pickups.clear(); this.sceneManager.scene.remove(this.run.player.root); this.ui.closePause(); this.ui.closeBetween(); this.run = undefined; this.effects.setLowHealth(false); }
+  private abandonRun(): void {
+    this.mobile.show(false); this.input.resetAll(); this.tutorial.close();
+    if (document.pointerLockElement) document.exitPointerLock();
+    const run = this.run; if (!run) return;
+    run.deathDialog?.remove(); run.deathDialog = undefined;
+    run.weapons.onShot = undefined; run.projectiles.onPlayerHit = undefined; run.pickups.onCollect = undefined;
+    run.enemies.onPlayerDamage = undefined; run.enemies.onEnemyKilled = undefined; run.enemies.onBossHealth = undefined;
+    run.outpost.dispose(); run.enemies.dispose(); run.projectiles.dispose(); run.pickups.dispose(); run.weapons.dispose();
+    this.sceneManager.scene.remove(run.player.root); this.ui.closePause(); this.ui.closeBetween();
+    this.run = undefined; this.effects.setLowHealth(false);
+  }
 
   private applySettings(settings: Settings): void { this.sceneManager.applySettings(settings); this.audio.setSettings(settings); this.mobile.applySettings(settings); this.hud.setSettings(settings.uiScale, settings.crosshairSize, settings.crosshairOpacity, settings.highContrast); this.run?.player.cameraController.setSettings(settings); this.run?.weapons.setSettings(settings); }
 
