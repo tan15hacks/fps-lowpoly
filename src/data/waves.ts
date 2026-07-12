@@ -1,0 +1,19 @@
+import type { WaveDefinition } from '../types/game';
+
+export const WAVES: WaveDefinition[] = [
+  { wave: 1, groups: [{ kind: 'runner', count: 6 }], spawnInterval: 1.25, boss: false },
+  { wave: 2, groups: [{ kind: 'runner', count: 9 }, { kind: 'spitter', count: 2 }], spawnInterval: 1.1, boss: false },
+  { wave: 3, groups: [{ kind: 'runner', count: 10 }, { kind: 'brute', count: 2 }], spawnInterval: 1.0, boss: false },
+  { wave: 4, groups: [{ kind: 'runner', count: 12 }, { kind: 'spitter', count: 4 }, { kind: 'brute', count: 2 }], spawnInterval: 0.9, boss: false },
+  { wave: 5, groups: [{ kind: 'runner', count: 8 }, { kind: 'boss', count: 1 }], spawnInterval: 1.0, boss: true },
+  { wave: 6, groups: [{ kind: 'runner', count: 16 }, { kind: 'spitter', count: 5 }], spawnInterval: 0.82, boss: false },
+  { wave: 7, groups: [{ kind: 'runner', count: 14 }, { kind: 'brute', count: 5 }, { kind: 'spitter', count: 4 }], spawnInterval: 0.78, boss: false },
+  { wave: 8, groups: [{ kind: 'runner', count: 20 }, { kind: 'spitter', count: 7 }], spawnInterval: 0.72, boss: false },
+  { wave: 9, groups: [{ kind: 'runner', count: 18 }, { kind: 'brute', count: 7 }, { kind: 'spitter', count: 7 }], spawnInterval: 0.68, boss: false },
+  { wave: 10, groups: [{ kind: 'runner', count: 10 }, { kind: 'spitter', count: 5 }, { kind: 'boss', count: 1 }], spawnInterval: 0.78, boss: true },
+  { wave: 11, groups: [{ kind: 'runner', count: 24 }, { kind: 'brute', count: 8 }, { kind: 'spitter', count: 8 }], spawnInterval: 0.62, boss: false },
+  { wave: 12, groups: [{ kind: 'runner', count: 28 }, { kind: 'spitter', count: 10 }], spawnInterval: 0.58, boss: false },
+  { wave: 13, groups: [{ kind: 'runner', count: 24 }, { kind: 'brute', count: 11 }, { kind: 'spitter', count: 9 }], spawnInterval: 0.55, boss: false },
+  { wave: 14, groups: [{ kind: 'runner', count: 32 }, { kind: 'brute', count: 12 }, { kind: 'spitter', count: 12 }], spawnInterval: 0.5, boss: false },
+  { wave: 15, groups: [{ kind: 'runner', count: 14 }, { kind: 'brute', count: 5 }, { kind: 'spitter', count: 7 }, { kind: 'boss', count: 1 }], spawnInterval: 0.6, boss: true },
+];

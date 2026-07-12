@@ -1,0 +1,39 @@
+{
+  "name": "polygon-outpost",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cap:add": "npx cap add android",
+    "cap:sync": "npm run build && npx cap sync",
+    "android": "npm run cap:sync && npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/app": "^7.1.0",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/haptics": "^7.0.2",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
+    "@eslint/js": "^9.36.0",
+    "@types/three": "^0.180.0",
+    "eslint": "^9.36.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.1",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,21 @@
+export interface AchievementDefinition { id: string; name: string; description: string; target: number; stat?: string }
+export const ACHIEVEMENTS: AchievementDefinition[] = [
+  { id: 'tutorial', name: 'Ready for Duty', description: 'Complete the tutorial', target: 1 },
+  { id: 'wave5', name: 'Holding the Line', description: 'Survive five waves', target: 5, stat: 'highestWave' },
+  { id: 'boss1', name: 'Big Game', description: 'Defeat the first boss', target: 1, stat: 'bossesDefeated' },
+  { id: 'wave10', name: 'Deep Defense', description: 'Reach wave 10', target: 10, stat: 'highestWave' },
+  { id: 'victory', name: 'Outpost Secured', description: 'Complete all 15 waves', target: 1, stat: 'wins' },
+  { id: 'soldier', name: 'Soldier Complete', description: 'Win on Soldier', target: 1, stat: 'soldierWins' },
+  { id: 'veteran', name: 'Veteran Complete', description: 'Win on Veteran', target: 1, stat: 'veteranWins' },
+  { id: 'runners100', name: 'Pest Control', description: 'Defeat 100 runners', target: 100, stat: 'runnersDefeated' },
+  { id: 'brutes50', name: 'Heavy Lifter', description: 'Defeat 50 brutes', target: 50, stat: 'brutesDefeated' },
+  { id: 'spitters50', name: 'Acid Reflux', description: 'Defeat 50 spitters', target: 50, stat: 'spittersDefeated' },
+  { id: 'crit50', name: 'Dead Center', description: 'Land 50 critical hits', target: 50, stat: 'criticalHits' },
+  { id: 'accuracy70', name: 'Marksman', description: 'Finish a run with at least 70% accuracy', target: 1 },
+  { id: 'untouched', name: 'Untouched', description: 'Finish a wave without damage', target: 1 },
+  { id: 'coins1000', name: 'War Chest', description: 'Collect 1,000 coins', target: 1000, stat: 'coinsCollected' },
+  { id: 'maxUpgrade', name: 'Fully Equipped', description: 'Fully upgrade one permanent stat', target: 1 },
+  { id: 'pistolRun', name: 'Sidearm Specialist', description: 'Complete a run mostly using the pistol', target: 1 },
+  { id: 'systemsBoss', name: 'Grid Keeper', description: 'Keep powered defenses active through a boss wave', target: 1 },
+  { id: 'speedBoss', name: 'Rapid Response', description: 'Defeat a boss quickly', target: 1 },
+];
