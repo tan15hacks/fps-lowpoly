@@ -19,7 +19,7 @@ export class Enemy{
     if(kind==='boss'||kind==='brute'){for(const side of [-1,1]){const arm=new THREE.Mesh(new THREE.CylinderGeometry(width*0.13,width*0.2,height*0.58,6),materials.material(color));arm.position.set(side*width*0.62,height*0.5,0);arm.rotation.z=side*0.45;this.group.add(arm);}}
     this.group.userData.enemy=this;this.lastPosition.copy(this.group.position);
   }
-  takeDamage(amount:number,critical:boolean):number{if(!this.alive)return 0;const applied=this.armorActive?amount*0.25:amount;this.health=Math.max(0,this.health-applied);this.body.material.emissive?.setHex?.(0xffffff);this.body.material.emissiveIntensity=0.8;window.setTimeout(()=>{if(this.body.material){this.body.material.emissive?.setHex?.(0x000000);this.body.material.emissiveIntensity=0;}},55);if(this.health<=0)this.alive=false;return applied;}
+  takeDamage(amount:number,_critical:boolean):number{if(!this.alive)return 0;const applied=this.armorActive?amount*0.25:amount;this.health=Math.max(0,this.health-applied);this.body.material.emissive?.setHex?.(0xffffff);this.body.material.emissiveIntensity=0.8;window.setTimeout(()=>{if(this.body.material){this.body.material.emissive?.setHex?.(0x000000);this.body.material.emissiveIntensity=0;}},55);if(this.health<=0)this.alive=false;return applied;}
   healthRatio():number{return this.health/this.maxHealth;}
   weakPointWorld(out:any):any{return this.weakPoint.getWorldPosition(out);}
   centerWorld(out:any):any{return this.body.getWorldPosition(out);}
