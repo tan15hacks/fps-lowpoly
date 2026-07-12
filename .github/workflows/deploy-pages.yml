@@ -10,6 +10,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  statuses: write
 
 concurrency:
   group: github-pages
@@ -59,3 +60,43 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  report:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - deploy
+    steps:
+      - name: Publish deployment status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          SITE_URL: https://tan15hacks.github.io/fps-lowpoly/
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [[ "${BUILD_RESULT}" == "success" && "${DEPLOY_RESULT}" == "success" ]]; then
+            STATE="success"
+            DESCRIPTION="Polygon Outpost deployed to GitHub Pages"
+            TARGET_URL="${SITE_URL}"
+          else
+            STATE="failure"
+            DESCRIPTION="Pages failed: build=${BUILD_RESULT}, deploy=${DEPLOY_RESULT}"
+            TARGET_URL="${RUN_URL}"
+          fi
+          PAYLOAD=$(jq -n \
+            --arg state "${STATE}" \
+            --arg target_url "${TARGET_URL}" \
+            --arg description "${DESCRIPTION}" \
+            --arg context "github-pages/deploy" \
+            '{state:$state,target_url:$target_url,description:$description,context:$context}')
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            --data "${PAYLOAD}"
