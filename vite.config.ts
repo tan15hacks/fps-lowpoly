@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   base: './',
@@ -8,4 +8,8 @@ export default defineConfig({
     assetsInlineLimit: 4096,
   },
   server: { host: true },
+  test: {
+    globals: true,
+    environment: 'node',
+  },
 });
