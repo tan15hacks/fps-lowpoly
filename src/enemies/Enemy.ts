@@ -10,6 +10,7 @@ export class Enemy {
   readonly body: any;
   readonly head: any;
   readonly weakPoint: any;
+  readonly spawnScale: number;
   health: number;
   maxHealth: number;
   speed: number;
@@ -21,7 +22,9 @@ export class Enemy {
   attackTimer = 0;
   stateTimer = 0;
   phase = 1;
+  phaseArmorTimer = 0;
   stuckTimer = 0;
+  stuckSampleTimer = 0;
   lastPosition = new THREE.Vector3();
   specialTimer = 2 + Math.random() * 2;
   armorActive = false;
@@ -42,6 +45,7 @@ export class Enemy {
     this.attackCooldown = base.attackCooldown;
     this.reward = base.reward;
     this.radius = base.radius;
+    this.spawnScale = kind === 'boss' ? 1.15 : 1;
     const color =
       kind === 'runner'
         ? PALETTE.runner
@@ -100,6 +104,8 @@ export class Enemy {
       }
     }
     this.group.userData.enemy = this;
+    this.group.userData.spawnScale = this.spawnScale;
+    this.group.scale.setScalar(0.05);
     this.lastPosition.copy(this.group.position);
   }
 
