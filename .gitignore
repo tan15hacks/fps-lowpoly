@@ -9,3 +9,8 @@ android/app/build/
 *.jks
 *.keystore
 .DS_Store
+src/**/*.js
+tests/**/*.js
+capacitor.config.js
+vite.config.js
+tsconfig.tsbuildinfo
