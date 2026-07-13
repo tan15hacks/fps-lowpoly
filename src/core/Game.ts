@@ -214,6 +214,7 @@ export class Game {
         pickups,
         this.particles,
         this.audio,
+        () => this.save.value.settings.maxEnemies,
       );
       const weapons = new WeaponManager(
         this.sceneManager.camera,
@@ -306,8 +307,15 @@ export class Game {
       this.run.bossName = name;
     };
     run.pickups.onCollect = (kind, value) => this.collectPickup(kind, value);
-    run.waves.onSpawn = (kind) =>
-      run.enemies.spawn(kind, run.waves.wave, run.difficulty);
+    run.waves.onSpawn = (kind, spawnIndex) =>
+      Boolean(
+        run.enemies.spawn(
+          kind,
+          run.waves.wave,
+          run.difficulty,
+          spawnIndex,
+        ),
+      );
     run.waves.onWaveStarted = (definition) => {
       run.damageAtWaveStart = run.stats.damageReceived;
       run.lifeStealHealedThisWave = 0;
