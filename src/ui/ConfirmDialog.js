@@ -1,4 +1,0 @@
-export function confirmDialog(title, message) {
-    return new Promise(resolve => { const root = document.createElement('div'); root.className = 'modal-backdrop'; root.innerHTML = `<section class="panel confirm-panel" role="dialog" aria-modal="true"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><div class="button-row"><button data-action="cancel">Cancel</button><button class="danger" data-action="confirm">Confirm</button></div></section>`; document.body.appendChild(root); const finish = (value) => { root.remove(); resolve(value); }; root.querySelector('[data-action="cancel"]').addEventListener('click', () => finish(false)); root.querySelector('[data-action="confirm"]').addEventListener('click', () => finish(true)); });
-}
-const escapeHtml = (value) => value.replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
