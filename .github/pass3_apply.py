@@ -75,12 +75,12 @@ replace_once(
 
 replace_once(
     "src/weapons/WeaponManager.ts",
-    "weapon.startReload(capacity, reloadMultiplier)",
-    "weapon.startReload(reloadMultiplier, capacity)",
+    "      if (reload && weapon.startReload(capacity, reloadMultiplier)) {",
+    "      if (reload && weapon.startReload(reloadMultiplier, capacity)) {",
 )
 
 replace_once(
     "src/weapons/WeaponManager.ts",
-    "weapon.startReload(capacity, reloadMultiplier);",
-    "weapon.startReload(reloadMultiplier, capacity);",
+    "          weapon.startReload(capacity, reloadMultiplier);",
+    "          weapon.startReload(reloadMultiplier, capacity);",
 )
