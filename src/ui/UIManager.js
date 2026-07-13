@@ -1,0 +1,126 @@
+import { ACHIEVEMENTS } from '../data/achievements';
+import { UPGRADES } from '../data/upgrades';
+import { POWER_COSTS } from '../outpost/PowerGrid';
+import { PERMANENT_LABELS, permanentUpgradeCost, purchasePermanent } from '../upgrades/PermanentUpgradeManager';
+import { createDefaultSave, validateImportedSave } from '../core/SaveManager';
+import { confirmDialog } from './ConfirmDialog';
+import { calculateRunCredits } from '../utils/rewards';
+const COSMETICS = [['standard', 'Standard Military', 0], ['desert', 'Desert', 160], ['arctic', 'Arctic', 220], ['hazard', 'Hazard', 280], ['neon', 'Neon', 380], ['crimson', 'Crimson', 450]];
+export class UIManager {
+    save;
+    hooks;
+    root = document.createElement('div');
+    screen = 'main';
+    pauseRoot;
+    betweenRoot;
+    resultsRoot;
+    settingsModal;
+    constructor(save, hooks) {
+        this.save = save;
+        this.hooks = hooks;
+        this.root.className = 'ui-shell';
+        document.body.appendChild(this.root);
+        this.showMain();
+    }
+    showMain() { this.screen = 'main'; this.clearOverlays(); const veteran = this.save.value.veteranUnlocked; this.root.innerHTML = `<main class="menu-screen"><div class="brand"><small>REMOTE DEFENSE COMMAND</small><h1>POLYGON<br><span>OUTPOST</span></h1><p>Hold the grid. Survive fifteen waves.</p></div><nav><button class="primary" data-screen="difficulty">PLAY</button><button data-screen="armory">ARMORY</button><button data-screen="achievements">ACHIEVEMENTS</button><button data-screen="statistics">STATISTICS</button><button data-screen="settings">SETTINGS</button><button data-screen="howto">HOW TO PLAY</button><button data-screen="credits">CREDITS</button></nav><footer>OFFLINE • VERSION 1.0 • ${this.save.value.credits.toLocaleString()} CREDITS</footer></main>`; this.bindScreenButtons(); if (!veteran)
+        this.root.dataset.veteran = 'locked'; }
+    hideRoot() { this.root.classList.add('hidden'); }
+    showRoot() { this.root.classList.remove('hidden'); }
+    showPause(upgrades) { if (this.pauseRoot)
+        return; this.pauseRoot = document.createElement('div'); this.pauseRoot.className = 'modal-backdrop'; const active = Object.entries(upgrades).filter(([, v]) => v > 0).map(([id, v]) => { const u = UPGRADES.find(x => x.id === id); return `<li><b>${u?.name ?? id}</b> ×${v}</li>`; }).join('') || '<li>No run upgrades yet.</li>'; this.pauseRoot.innerHTML = `<section class="panel pause-panel"><small>GAME PAUSED</small><h2>Outpost Status</h2><ul>${active}</ul><button class="primary" data-resume>Resume</button><button data-settings>Settings</button><button data-restart>Restart Run</button><button data-menu>Return to Main Menu</button></section>`; document.body.appendChild(this.pauseRoot); this.pauseRoot.querySelector('[data-resume]').addEventListener('click', () => this.hooks.onResume()); this.pauseRoot.querySelector('[data-settings]').addEventListener('click', () => this.openSettings(true)); this.pauseRoot.querySelector('[data-restart]').addEventListener('click', async () => { if (await confirmDialog('Restart run?', 'Current wave progress and run upgrades will be lost.'))
+        this.hooks.onRestart(); }); this.pauseRoot.querySelector('[data-menu]').addEventListener('click', async () => { if (await confirmDialog('Leave the outpost?', 'Current run progress will be lost.'))
+        this.hooks.onMainMenu(); }); }
+    closePause() { this.pauseRoot?.remove(); this.pauseRoot = undefined; }
+    showBetween(wave, choices, power, used, capacity) { this.betweenRoot?.remove(); this.betweenRoot = document.createElement('div'); this.betweenRoot.className = 'modal-backdrop between'; const cards = choices.map(u => `<button class="upgrade-card ${u.rarity}" data-upgrade="${u.id}"><small>${u.rarity.toUpperCase()}</small><h3>${u.name}</h3><p>${u.description}</p></button>`).join(''); const systems = Object.keys(POWER_COSTS).map(id => `<label class="power-card"><input type="checkbox" data-power="${id}" ${power[id] ? 'checked' : ''}><span><b>${id.toUpperCase()}</b><small>${POWER_COSTS[id]} POWER</small></span></label>`).join(''); this.betweenRoot.innerHTML = `<section class="between-panel"><header><small>${wave === 0 ? 'DEPLOYMENT READY' : `WAVE ${wave} COMPLETE`}</small><h2>Prepare the Outpost</h2></header><div class="between-grid"><article class="panel"><h3>Choose one upgrade</h3><div class="upgrade-grid">${cards}</div><p data-upgrade-selected>Choose one card to continue.</p></article><article class="panel"><h3>Power Grid <span data-power-used>${used} / ${capacity}</span></h3><div class="power-grid">${systems}</div><p>Power changes apply immediately. The grid prevents over-allocation.</p></article></div><button class="primary start-wave" data-start disabled>${wave >= 15 ? 'VIEW RESULTS' : 'START NEXT WAVE'}</button></section>`; document.body.appendChild(this.betweenRoot); let selected = choices.length === 0; const start = this.betweenRoot.querySelector('[data-start]'); start.disabled = !selected; this.betweenRoot.querySelectorAll('[data-upgrade]').forEach(card => card.addEventListener('click', () => { if (selected)
+        return; selected = true; this.hooks.onUpgrade(card.dataset.upgrade); this.betweenRoot.querySelectorAll('[data-upgrade]').forEach(x => x.classList.remove('selected')); card.classList.add('selected'); this.betweenRoot.querySelector('[data-upgrade-selected]').textContent = `Selected ${card.querySelector('h3').textContent}`; start.disabled = false; })); this.betweenRoot.querySelectorAll('[data-power]').forEach(input => input.addEventListener('change', () => { const ok = this.hooks.onPower(input.dataset.power, input.checked); if (!ok) {
+        input.checked = false;
+        this.flashMessage('Not enough generator power.');
+    } const current = Object.keys(POWER_COSTS).reduce((sum, id) => sum + (this.betweenRoot.querySelector(`[data-power="${id}"]`).checked ? POWER_COSTS[id] : 0), 0); this.betweenRoot.querySelector('[data-power-used]').textContent = `${current} / ${capacity}`; })); start.addEventListener('click', () => { this.betweenRoot?.remove(); this.betweenRoot = undefined; this.hooks.onStartWave(); }); }
+    showResults(stats, earned, adsAvailable = false) { this.clearOverlays(); const credits = earned ?? calculateRunCredits(stats); const accuracy = stats.shotsFired ? Math.round(stats.shotsHit / stats.shotsFired * 100) : 0; this.resultsRoot = document.createElement('div'); this.resultsRoot.className = 'modal-backdrop results'; this.resultsRoot.innerHTML = `<section class="panel results-panel"><small>${stats.victory ? 'OUTPOST SECURED' : 'DEFENSE FAILED'}</small><h2>${stats.victory ? 'Victory' : 'Wave ' + stats.wave}</h2><div class="results-grid"><div><b>${stats.score.toLocaleString()}</b><span>Score</span></div><div><b>${stats.enemiesDefeated}</b><span>Eliminations</span></div><div><b>${accuracy}%</b><span>Accuracy</span></div><div><b>${stats.criticalHits}</b><span>Critical Hits</span></div><div><b>${formatTime((stats.endedAt ?? Date.now()) - stats.startedAt)}</b><span>Time</span></div><div><b>${credits}</b><span>Credits Earned</span></div></div><div class="button-row">${adsAvailable ? '<button data-double>Watch Ad: Double Credits</button>' : ''}<button class="primary" data-menu>Return to Main Menu</button></div></section>`; document.body.appendChild(this.resultsRoot); this.resultsRoot.querySelector('[data-menu]').addEventListener('click', () => this.hooks.onMainMenu()); }
+    closeBetween() { this.betweenRoot?.remove(); this.betweenRoot = undefined; }
+    handleBack() { if (this.screen !== 'main') {
+        this.showMain();
+        return true;
+    } return false; }
+    dispose() { this.clearOverlays(); this.root.remove(); }
+    showDifficulty() { this.screen = 'difficulty'; this.root.innerHTML = `<main class="sub-screen"><header><button data-back>←</button><div><small>NEW DEPLOYMENT</small><h2>Select Difficulty</h2></div></header><div class="difficulty-grid"><button data-difficulty="recruit"><h3>Recruit</h3><p>Lower damage, slower waves, more supplies.</p><b>0.8× rewards</b></button><button class="recommended" data-difficulty="soldier"><small>RECOMMENDED</small><h3>Soldier</h3><p>Standard enemy balance and pacing.</p><b>1.0× rewards</b></button><button data-difficulty="veteran" ${this.save.value.veteranUnlocked ? '' : 'disabled'}><h3>Veteran</h3><p>Harder enemies, fewer heals, faster pressure.</p><b>${this.save.value.veteranUnlocked ? '1.5× rewards' : 'Reach wave 10 to unlock'}</b></button></div></main>`; this.bindBack(); this.root.querySelectorAll('[data-difficulty]').forEach(button => button.addEventListener('click', () => { if (!button.disabled)
+        this.hooks.onPlay(button.dataset.difficulty); })); }
+    showArmory() { this.screen = 'armory'; const levels = this.save.value.permanent; const upgrades = Object.keys(levels).map(key => { const level = levels[key]; const cost = permanentUpgradeCost(key, level); return `<article class="armory-item"><div><h3>${PERMANENT_LABELS[key]}</h3><p>Level ${level} / 5 • ${this.valueDescription(key, level)} → ${this.valueDescription(key, Math.min(5, level + 1))}</p></div><button data-buy="${key}" ${level >= 5 ? 'disabled' : ''}>${level >= 5 ? 'MAX' : cost + ' CR'}</button></article>`; }).join(''); const cosmetics = COSMETICS.map(([id, name, cost]) => { const owned = this.save.value.ownedCosmetics.includes(id); const equipped = this.save.value.equippedCosmetic === id; return `<article class="cosmetic ${id}"><div class="swatch"></div><h3>${name}</h3><button data-cosmetic="${id}" ${equipped ? 'disabled' : ''}>${equipped ? 'EQUIPPED' : owned ? 'EQUIP' : cost + ' CR'}</button></article>`; }).join(''); this.root.innerHTML = `<main class="sub-screen"><header><button data-back>←</button><div><small>PERMANENT PROGRESSION</small><h2>Armory</h2></div><b>${this.save.value.credits.toLocaleString()} CREDITS</b></header><section class="tab-content"><h3>Combat Upgrades</h3><div class="armory-list">${upgrades}</div><h3>Weapon Color Themes</h3><div class="cosmetic-grid">${cosmetics}</div></section></main>`; this.bindBack(); this.root.querySelectorAll('[data-buy]').forEach(button => button.addEventListener('click', () => { const key = button.dataset.buy; const result = purchasePermanent(this.save.value.permanent, this.save.value.credits, key); if (!result.purchased) {
+        this.flashMessage('Not enough credits or upgrade is already maxed.');
+        return;
+    } this.save.mutate(data => { data.permanent = result.levels; data.credits = result.credits; }, true); this.showArmory(); })); this.root.querySelectorAll('[data-cosmetic]').forEach(button => button.addEventListener('click', () => { const id = button.dataset.cosmetic; const item = COSMETICS.find(x => x[0] === id); const owned = this.save.value.ownedCosmetics.includes(id); if (!owned && this.save.value.credits < item[2]) {
+        this.flashMessage('Not enough credits.');
+        return;
+    } this.save.mutate(data => { if (!owned) {
+        data.credits -= item[2];
+        data.ownedCosmetics.push(id);
+    } data.equippedCosmetic = id; }, true); this.showArmory(); })); }
+    showAchievements() { this.screen = 'achievements'; const cards = ACHIEVEMENTS.map(a => { const record = this.save.value.achievements[a.id] ?? { id: a.id, progress: 0 }; const done = Boolean(record.completedAt); return `<article class="achievement ${done ? 'done' : ''}"><span>${done ? '✓' : '◇'}</span><div><h3>${a.name}</h3><p>${a.description}</p><small>${Math.min(a.target, Math.floor(record.progress))} / ${a.target}${record.completedAt ? ' • ' + new Date(record.completedAt).toLocaleDateString() : ''}</small></div></article>`; }).join(''); this.subScreen('SERVICE RECORD', 'Achievements', cards, 'achievement-grid'); }
+    showStatistics() { this.screen = 'statistics'; const s = this.save.value.stats; const accuracy = s.shotsFired ? Math.round(s.shotsHit / s.shotsFired * 100) : 0; const entries = [['Total Runs', s.totalRuns], ['Victories', s.wins], ['Highest Wave', s.highestWave], ['Enemies Defeated', s.enemiesDefeated], ['Runners', s.runnersDefeated], ['Brutes', s.brutesDefeated], ['Spitters', s.spittersDefeated], ['Bosses', s.bossesDefeated], ['Accuracy', accuracy + '%'], ['Critical Hits', s.criticalHits], ['Damage Dealt', Math.round(s.damageDealt).toLocaleString()], ['Coins Collected', s.coinsCollected.toLocaleString()], ['Highest Combo', s.highestCombo], ['Playtime', formatTime(s.totalPlaytime * 1000)]]; this.subScreen('LIFETIME DATA', 'Statistics', entries.map(([k, v]) => `<article><span>${k}</span><b>${v}</b></article>`).join(''), 'stats-grid'); }
+    showHowTo() { this.screen = 'howto'; this.subScreen('FIELD MANUAL', 'How to Play', `<article class="manual"><h3>Mission</h3><p>Survive fifteen waves. Boss mutants arrive on waves 5, 10, and 15.</p><h3>Desktop Controls</h3><p>WASD move • Mouse look • Left fire • Right aim • Shift sprint • Space jump • R reload • E interact • 1–3 switch • Esc pause</p><h3>Mobile Controls</h3><p>Left joystick moves. Drag the right side to look. Use the large touch buttons for fire, aim, jump, reload, sprint, interaction, and weapon switching.</p><h3>Power Grid</h3><p>The generator supplies 10 units. Turret costs 4, fence 3, healing 3, ammo 2, scanners 2. You cannot run every system at once.</p><h3>Weak Points</h3><p>Glowing orange crystals take critical damage. Strong attacks glow before they land, giving you time to dodge.</p><button data-tutorial>Restart Interactive Tutorial</button></article>`, 'manual-wrap'); this.root.querySelector('[data-tutorial]').addEventListener('click', () => this.hooks.onTutorial()); }
+    showCredits() { this.screen = 'credits'; this.subScreen('DEVELOPMENT', 'Credits', `<article class="manual"><h3>Polygon Outpost</h3><p>Original game design, code architecture, procedural models, interface, and synthesized audio created for this project.</p><p>Built with Three.js, TypeScript, Vite, Capacitor, IndexedDB, Web Audio API, Vitest, ESLint, and Prettier.</p><p>No copyrighted characters, music, logos, or third-party art assets are included.</p></article>`, 'manual-wrap'); }
+    openSettings(inModal = false) {
+        const s = this.save.value.settings;
+        const html = `<div class="settings-grid">${this.range('Master Volume', 'masterVolume', s.masterVolume, 0, 1, 0.05)}${this.range('Music Volume', 'musicVolume', s.musicVolume, 0, 1, 0.05)}${this.range('Effects Volume', 'effectsVolume', s.effectsVolume, 0, 1, 0.05)}${this.range('Mouse Sensitivity', 'mouseSensitivity', s.mouseSensitivity, 0.03, 0.5, 0.01)}${this.range('Touch Sensitivity', 'touchSensitivity', s.touchSensitivity, 0.1, 1.5, 0.05)}${this.range('Field of View', 'fov', s.fov, 60, 100, 1)}${this.range('Resolution Scale', 'resolutionScale', s.resolutionScale, 0.5, 1.5, 0.1)}${this.range('Enemy Cap', 'maxEnemies', s.maxEnemies, 20, 50, 1)}${this.range('Camera Shake', 'cameraShake', s.cameraShake, 0, 1, 0.05)}${this.range('Head Bob', 'headBob', s.headBob, 0, 1, 0.05)}${this.range('Control Opacity', 'controlOpacity', s.controlOpacity, 0.3, 1, 0.05)}${this.range('UI Scale', 'uiScale', s.uiScale, 0.8, 1.35, 0.05)}${this.select('Graphics Quality', 'quality', s.quality, ['low', 'medium', 'high'])}${this.toggle('Reduced Motion', 'reducedMotion', s.reducedMotion)}${this.toggle('Aim Assist', 'aimAssist', s.aimAssist)}${this.toggle('Automatic Reload', 'autoReload', s.autoReload)}${this.toggle('Damage Numbers', 'damageNumbers', s.damageNumbers)}${this.toggle('Hit Markers', 'hitMarkers', s.hitMarkers)}${this.toggle('Vibration', 'vibration', s.vibration)}${this.toggle('Left-Handed Controls', 'leftHanded', s.leftHanded)}${this.toggle('High-Contrast HUD', 'highContrast', s.highContrast)}</div><div class="button-row"><button data-export>Export Save</button><button data-import>Import Save</button><button class="danger" data-reset>Reset Progress</button></div><input type="file" accept="application/json" data-file hidden>`;
+        if (inModal) {
+            this.settingsModal?.remove();
+            const modal = document.createElement('div');
+            this.settingsModal = modal;
+            modal.className = 'modal-backdrop settings-modal';
+            modal.innerHTML = `<section class="panel settings-panel"><header><h2>Settings</h2><button data-close>×</button></header>${html}</section>`;
+            document.body.appendChild(modal);
+            this.bindSettings(modal);
+            modal.querySelector('[data-close]').addEventListener('click', () => { modal.remove(); if (this.settingsModal === modal)
+                this.settingsModal = undefined; });
+        }
+        else {
+            this.screen = 'settings';
+            this.root.innerHTML = `<main class="sub-screen"><header><button data-back>←</button><div><small>SYSTEM CONFIGURATION</small><h2>Settings</h2></div></header><section class="tab-content">${html}</section></main>`;
+            this.bindBack();
+            this.bindSettings(this.root);
+        }
+    }
+    bindSettings(container) { container.querySelectorAll('[data-setting]').forEach(input => input.addEventListener('input', () => { const key = input.dataset.setting; let value = input instanceof HTMLInputElement && input.type === 'checkbox' ? input.checked : input instanceof HTMLInputElement && input.type === 'range' ? Number(input.value) : input.value; this.save.mutate(data => { data.settings[key] = value; }); this.hooks.onSettings(this.save.value.settings); const output = input.parentElement?.querySelector('output'); if (output)
+        output.textContent = String(value); })); container.querySelector('[data-export]').addEventListener('click', () => { const blob = new Blob([this.save.exportJson()], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'polygon-outpost-save.json'; a.click(); URL.revokeObjectURL(a.href); }); const file = container.querySelector('[data-file]'); container.querySelector('[data-import]').addEventListener('click', () => file.click()); file.addEventListener('change', async () => { const selected = file.files?.[0]; if (!selected)
+        return; try {
+        const parsed = JSON.parse(await selected.text());
+        const result = validateImportedSave(parsed);
+        if (!result.valid || !result.save) {
+            this.flashMessage(result.reason ?? 'Invalid save file.');
+            return;
+        }
+        this.save.replace(result.save);
+        this.flashMessage('Save imported.');
+        this.hooks.onSettings(result.save.settings);
+    }
+    catch {
+        this.flashMessage('Could not read that save file.');
+    } }); container.querySelector('[data-reset]').addEventListener('click', async () => { if (await confirmDialog('Reset all progress?', 'Permanent upgrades, credits, achievements, statistics, cosmetics, and settings will be erased.')) {
+        this.save.replace(createDefaultSave());
+        this.hooks.onSettings(this.save.value.settings);
+        this.hooks.onResetProgress();
+    } }); }
+    subScreen(kicker, title, content, className) { this.root.innerHTML = `<main class="sub-screen"><header><button data-back>←</button><div><small>${kicker}</small><h2>${title}</h2></div></header><section class="tab-content ${className}">${content}</section></main>`; this.bindBack(); }
+    bindScreenButtons() { this.root.querySelectorAll('[data-screen]').forEach(button => button.addEventListener('click', () => { const screen = button.dataset.screen; if (screen === 'difficulty')
+        this.showDifficulty();
+    else if (screen === 'armory')
+        this.showArmory();
+    else if (screen === 'achievements')
+        this.showAchievements();
+    else if (screen === 'statistics')
+        this.showStatistics();
+    else if (screen === 'settings')
+        this.openSettings();
+    else if (screen === 'howto')
+        this.showHowTo();
+    else if (screen === 'credits')
+        this.showCredits(); })); }
+    bindBack() { this.root.querySelector('[data-back]')?.addEventListener('click', () => this.showMain()); }
+    clearOverlays() { this.closePause(); this.closeBetween(); this.resultsRoot?.remove(); this.resultsRoot = undefined; this.settingsModal?.remove(); this.settingsModal = undefined; }
+    valueDescription(key, level) { return ['health', 'armor'].includes(key) ? `+${level * 8}` : `+${level * 6}%`; }
+    range(label, key, value, min, max, step) { return `<label>${label}<input type="range" data-setting="${key}" value="${value}" min="${min}" max="${max}" step="${step}"><output>${value}</output></label>`; }
+    toggle(label, key, value) { return `<label class="toggle">${label}<input type="checkbox" data-setting="${key}" ${value ? 'checked' : ''}><i></i></label>`; }
+    select(label, key, value, options) { return `<label>${label}<select data-setting="${key}">${options.map(o => `<option value="${o}" ${o === value ? 'selected' : ''}>${o.toUpperCase()}</option>`).join('')}</select></label>`; }
+    flashMessage(text) { const toast = document.createElement('div'); toast.className = 'toast'; toast.textContent = text; document.body.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show')); window.setTimeout(() => toast.remove(), 2200); }
+}
+const formatTime = (ms) => { const seconds = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };

@@ -128,7 +128,7 @@ export class WeaponManager {
       this.upgrades.multiplier('reload', 0.15);
 
     if (!switching) {
-      if (reload && weapon.startReload(capacity, reloadMultiplier)) {
+      if (reload && weapon.startReload(reloadMultiplier, capacity)) {
         this.audio.play('reload');
       }
       const shellLoaded = weapon.update(delta, capacity, reloadMultiplier);
@@ -179,7 +179,7 @@ export class WeaponManager {
         this.audio.play('empty');
         weapon.lastShotAt = now;
         if (this.settings.autoReload) {
-          weapon.startReload(capacity, reloadMultiplier);
+          weapon.startReload(reloadMultiplier, capacity);
         }
       }
     }
