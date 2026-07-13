@@ -16,7 +16,7 @@ export class WaveManager {
   private queue: WaveQueueItem[] = [];
   private spawnTimer = 0;
   private completionEmitted = false;
-  onSpawn?: (kind: EnemyKind, spawnIndex: number) => void;
+  onSpawn?: (kind: EnemyKind, spawnIndex: number) => boolean | void;
   onWaveStarted?: (definition: WaveDefinition) => void;
   onWaveComplete?: (wave: number) => void;
 
@@ -53,8 +53,14 @@ export class WaveManager {
       this.activeCount() < limit &&
       safety < limit + 1
     ) {
-      const item = this.queue.shift()!;
-      this.onSpawn?.(item.kind, item.spawnIndex);
+      const item = this.queue[0]!;
+      const accepted = this.onSpawn?.(item.kind, item.spawnIndex) !== false;
+      if (!accepted) {
+        this.spawnTimer = 0.2;
+        break;
+      }
+
+      this.queue.shift();
       const pacing = enemyScale(this.wave, this.difficulty, item.kind).pacing;
       this.spawnTimer += Math.max(0.05, item.delay * pacing);
       safety += 1;
