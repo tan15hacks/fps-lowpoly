@@ -1,0 +1,47 @@
+name: Apply Pass 4 enemy and wave integration
+
+on:
+  push:
+    branches:
+      - agent/pass-4-enemy-ai-waves
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Pass 4 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/pass-4-enemy-ai-waves
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply Game integration patch
+        run: python .github/pass4_apply.py
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate Pass 4
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test
+          npm run build
+
+      - name: Commit verified Pass 4 integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/pass4_apply.py .github/workflows/apply-pass4.yml
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: integrate Pass 4 enemy and wave state"
+          git push origin HEAD:agent/pass-4-enemy-ai-waves
