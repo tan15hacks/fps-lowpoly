@@ -1,0 +1,49 @@
+name: Clean Pass 3 TypeScript emit artifacts
+
+on:
+  push:
+    branches:
+      - agent/pass-3-weapons-combat
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Pass 3 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/pass-3-weapons-combat
+
+      - name: Remove generated JavaScript and build metadata
+        shell: bash
+        run: |
+          find src tests -type f -name '*.js' -delete
+          rm -f capacitor.config.js vite.config.js tsconfig.tsbuildinfo
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate clean Pass 3 branch
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test
+          npm run build
+
+      - name: Commit clean verified branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/cleanup-pass3-emit.yml
+          git add -A
+          git commit -m "build: remove generated TypeScript artifacts"
+          git push origin HEAD:agent/pass-3-weapons-combat
