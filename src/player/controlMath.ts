@@ -57,7 +57,7 @@ export function isInsideAimCone(dot: number, maximumAngleRadians: number): boole
 
 export function aimAssistScore(dot: number, distance: number, maximumRange: number): number {
   const safeRange = Math.max(0.001, maximumRange);
-  return (1 - clamp(dot, -1, 1)) * 8 + clamp(distance / safeRange, 0, 1) * 0.12;
+  return (1 - clamp(dot, -1, 1)) * 24 + clamp(distance / safeRange, 0, 1) * 0.12;
 }
 
 const clamp = (value: number, minimum: number, maximum: number): number =>
