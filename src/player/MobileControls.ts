@@ -1,5 +1,6 @@
 import type { Settings } from '../types/game';
 import { InputManager } from '../core/InputManager';
+import { applyRadialDeadzone, clampLookDelta } from './controlMath';
 
 export class MobileControls {
   readonly root: HTMLDivElement;
@@ -43,7 +44,7 @@ export class MobileControls {
   }
 
   show(value: boolean): void {
-    const visible = value && this.input.isTouchDevice();
+    const visible = value && this.input.prefersTouchControls();
     if (!visible) this.resetInteraction();
     this.root.classList.toggle('visible', visible);
   }
@@ -70,6 +71,7 @@ export class MobileControls {
     const zone = this.root.querySelector<HTMLElement>('.move-zone')!;
     zone.addEventListener('pointerdown', (event) => {
       if (this.movePointer !== undefined) return;
+      this.input.notePointerType(event.pointerType);
       this.movePointer = event.pointerId;
       this.moveOrigin = { x: event.clientX, y: event.clientY };
       this.base.style.left = `${event.clientX}px`;
@@ -83,12 +85,13 @@ export class MobileControls {
       const dx = event.clientX - this.moveOrigin.x;
       const dy = event.clientY - this.moveOrigin.y;
       const length = Math.hypot(dx, dy);
-      const max = 54;
-      const scale = length > max ? max / length : 1;
-      const x = dx * scale;
-      const y = dy * scale;
-      this.knob.style.transform = `translate(${x}px,${y}px)`;
-      this.input.setMobile({ moveX: x / max, moveZ: -y / max });
+      const maximum = 54;
+      const scale = length > maximum ? maximum / length : 1;
+      const visualX = dx * scale;
+      const visualY = dy * scale;
+      const movement = applyRadialDeadzone(visualX / maximum, -visualY / maximum);
+      this.knob.style.transform = `translate(${visualX}px,${visualY}px)`;
+      this.input.setMobile({ moveX: movement.x, moveZ: movement.y });
       event.preventDefault();
     });
     const release = (event: PointerEvent): void => {
@@ -108,6 +111,7 @@ export class MobileControls {
     let previous = { x: 0, y: 0 };
     zone.addEventListener('pointerdown', (event) => {
       if (this.lookPointer !== undefined) return;
+      this.input.notePointerType(event.pointerType);
       this.lookPointer = event.pointerId;
       previous = { x: event.clientX, y: event.clientY };
       zone.setPointerCapture(event.pointerId);
@@ -115,10 +119,10 @@ export class MobileControls {
     });
     zone.addEventListener('pointermove', (event) => {
       if (event.pointerId !== this.lookPointer) return;
-      this.input.setMobile({
-        lookX: event.clientX - previous.x,
-        lookY: event.clientY - previous.y,
-      });
+      this.input.addMobileLook(
+        clampLookDelta(event.clientX - previous.x, 80),
+        clampLookDelta(event.clientY - previous.y, 80),
+      );
       previous = { x: event.clientX, y: event.clientY };
       event.preventDefault();
     });
@@ -137,6 +141,7 @@ export class MobileControls {
     let pointerId: number | undefined;
     button.addEventListener('pointerdown', (event) => {
       if (pointerId !== undefined) return;
+      this.input.notePointerType(event.pointerType);
       pointerId = event.pointerId;
       this.input.setMobile({ [property]: true });
       button.setPointerCapture(event.pointerId);
@@ -155,6 +160,7 @@ export class MobileControls {
 
   private bindTap(selector: string, action: () => void): void {
     this.root.querySelector<HTMLElement>(selector)!.addEventListener('pointerdown', (event) => {
+      this.input.notePointerType(event.pointerType);
       action();
       event.preventDefault();
     });
