@@ -35,7 +35,7 @@ describe('full wave progression', () => {
   it('retains a queued enemy when the spawn target rejects it', () => {
     let attempts = 0;
     let active = 0;
-    const manager = new WaveManager('soldier', () => active, () => 2, () => 0);
+    const manager = new WaveManager('soldier', () => active, () => 1, () => 0);
     manager.onSpawn = () => {
       attempts += 1;
       if (attempts === 1) return false;
