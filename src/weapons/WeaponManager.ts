@@ -6,6 +6,7 @@ import { AudioManager } from '../core/AudioManager';
 import { LowPolyMaterialFactory, PALETTE } from '../visuals/LowPolyMaterialFactory';
 import { PlayerCamera } from '../player/PlayerCamera';
 import { PlayerStats } from '../player/PlayerStats';
+import { damp, type LookInputSource } from '../player/controlMath';
 import { Weapon } from './Weapon';
 import { createHitscanRays, type HitscanRay } from './HitscanSystem';
 
@@ -14,6 +15,13 @@ export interface ShotEvent {
   rays: HitscanRay[];
   baseDamage: number;
 }
+
+export type AimDirectionResolver = (
+  origin: THREE.Vector3,
+  direction: THREE.Vector3,
+  range: number,
+  maximumAngleRadians: number,
+) => THREE.Vector3 | undefined;
 
 export class WeaponManager {
   readonly weapons: Record<WeaponId, Weapon> = {
@@ -29,6 +37,8 @@ export class WeaponManager {
   private wasFireHeld = false;
   private muzzleTimer = 0;
   private disposed = false;
+  private aimBlend = 0;
+  private aimDirectionResolver?: AimDirectionResolver;
   onShot?: (event: ShotEvent) => void;
   onChanged?: () => void;
 
@@ -55,6 +65,10 @@ export class WeaponManager {
 
   setSettings(settings: Settings): void {
     this.settings = settings;
+  }
+
+  setAimDirectionResolver(resolver?: AimDirectionResolver): void {
+    this.aimDirectionResolver = resolver;
   }
 
   active(): Weapon {
@@ -84,7 +98,14 @@ export class WeaponManager {
     this.switchTo(ids[(index + (direction > 0 ? 1 : -1) + ids.length) % ids.length]!);
   }
 
-  update(delta: number, now: number, fire: boolean, reload: boolean, aiming: boolean): void {
+  update(
+    delta: number,
+    now: number,
+    fire: boolean,
+    reload: boolean,
+    aiming: boolean,
+    lookSource: LookInputSource,
+  ): void {
     if (this.disposed) return;
     const weapon = this.active();
     const capacity = this.capacity(this.activeId);
@@ -94,6 +115,7 @@ export class WeaponManager {
     if (reload && weapon.startReload(reloadMultiplier)) this.audio.play('reload');
     const step = weapon.update(delta, capacity, reloadMultiplier);
     if (step && weapon.definition.shellReload) this.audio.play('reload');
+
     const wantsFire = fire && (weapon.definition.automatic || !this.wasFireHeld);
     if (wantsFire) {
       if (weapon.fire(now)) {
@@ -101,10 +123,24 @@ export class WeaponManager {
           weapon.definition.spread *
           (aiming ? 0.55 : 1) *
           this.upgrades.multiplier('recoil', -0.12);
-        const forward = this.cameraController.forward();
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
         const origin = this.camera.getWorldPosition(new THREE.Vector3());
+        let forward = this.cameraController.forward();
+        if (
+          aiming &&
+          lookSource === 'touch' &&
+          this.settings.aimAssist &&
+          this.aimDirectionResolver
+        ) {
+          forward =
+            this.aimDirectionResolver(
+              origin,
+              forward,
+              weapon.definition.range,
+              THREE.MathUtils.degToRad(5.5),
+            ) ?? forward;
+        }
+        const right = forward.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
+        const up = right.clone().cross(forward).normalize();
         const rays = createHitscanRays(
           origin,
           forward,
@@ -126,13 +162,22 @@ export class WeaponManager {
         if (this.settings.autoReload) weapon.startReload(reloadMultiplier);
       }
     }
+
+    this.aimBlend = damp(this.aimBlend, aiming ? 1 : 0, 14, delta);
     const model = this.models.get(this.activeId)!;
     this.swayTime += delta * (fire ? 11 : 5);
     const recoil = this.activeId === 'shotgun' ? 0.08 : 0.035;
-    model.position.x = 0.34 + Math.sin(this.swayTime) * 0.006;
-    model.position.y = -0.28 + Math.abs(Math.cos(this.swayTime * 0.5)) * 0.006;
+    const swayScale = 1 - this.aimBlend * 0.7;
+    model.position.x =
+      THREE.MathUtils.lerp(0.34, 0.035, this.aimBlend) +
+      Math.sin(this.swayTime) * 0.006 * swayScale;
+    model.position.y =
+      THREE.MathUtils.lerp(-0.28, -0.215, this.aimBlend) +
+      Math.abs(Math.cos(this.swayTime * 0.5)) * 0.006 * swayScale;
     model.position.z =
-      -0.62 + Math.min(0.12, now - weapon.lastShotAt < 0.09 ? recoil : 0);
+      THREE.MathUtils.lerp(-0.62, -0.56, this.aimBlend) +
+      Math.min(0.12, now - weapon.lastShotAt < 0.09 ? recoil : 0);
+
     this.wasFireHeld = fire;
     this.muzzleTimer -= delta;
     if (this.muzzle && this.muzzleTimer <= 0) {
@@ -158,6 +203,7 @@ export class WeaponManager {
     this.disposed = true;
     this.onShot = undefined;
     this.onChanged = undefined;
+    this.aimDirectionResolver = undefined;
     this.wasFireHeld = false;
     this.muzzle = undefined;
     for (const weapon of Object.values(this.weapons)) weapon.cancelReload();
