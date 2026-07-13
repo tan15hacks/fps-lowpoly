@@ -3,6 +3,7 @@ import { ENEMIES } from '../data/enemies';
 import type { EnemyKind } from '../types/game';
 import { LowPolyMaterialFactory, PALETTE } from '../visuals/LowPolyMaterialFactory';
 import { enemyScale } from '../utils/difficulty';
+import { appliedDamage } from '../utils/combatState';
 
 export class Enemy {
   readonly group = new THREE.Group();
@@ -104,7 +105,9 @@ export class Enemy {
 
   takeDamage(amount: number, _critical: boolean): number {
     if (!this.alive) return 0;
-    const applied = this.armorActive ? amount * 0.25 : amount;
+    const applied = appliedDamage(this.health, amount, this.armorActive ? 0.25 : 1);
+    if (applied <= 0) return 0;
+
     this.health = Math.max(0, this.health - applied);
     this.body.material.emissive?.setHex?.(0xffffff);
     this.body.material.emissiveIntensity = 0.8;
