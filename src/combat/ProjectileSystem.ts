@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { LowPolyMaterialFactory, PALETTE } from '../visuals/LowPolyMaterialFactory';
 import { CollisionWorld } from '../world/CollisionWorld';
+import { segmentSphereHit } from './projectileMath';
 
 interface Projectile {
   mesh: any;
-  velocity: any;
+  velocity: THREE.Vector3;
   life: number;
   damage: number;
   radius: number;
@@ -21,7 +22,7 @@ export class ProjectileSystem {
   private projectiles: Projectile[] = [];
   private hazards: Hazard[] = [];
   private pool: any[] = [];
-  onPlayerHit?: (damage: number) => void;
+  onPlayerHit?: (damage: number, source: THREE.Vector3) => void;
 
   constructor(
     private scene: any,
@@ -29,7 +30,7 @@ export class ProjectileSystem {
     private collision: CollisionWorld,
   ) {}
 
-  spawn(origin: any, target: any, damage: number, speed = 10): void {
+  spawn(origin: THREE.Vector3, target: THREE.Vector3, damage: number, speed = 10): void {
     const mesh =
       this.pool.pop() ??
       new THREE.Mesh(
@@ -39,32 +40,41 @@ export class ProjectileSystem {
     mesh.visible = true;
     mesh.position.copy(origin);
     this.scene.add(mesh);
-    const velocity = target.clone().sub(origin).normalize().multiplyScalar(speed);
+    const velocity = target.clone().sub(origin).normalize().multiplyScalar(Math.max(0, speed));
     this.projectiles.push({ mesh, velocity, life: 4, damage, radius: 0.25 });
   }
 
-  update(delta: number, playerPosition: any): void {
+  update(delta: number, playerPosition: THREE.Vector3): void {
     for (let index = this.projectiles.length - 1; index >= 0; index -= 1) {
       const projectile = this.projectiles[index]!;
       projectile.life -= delta;
       const previous = projectile.mesh.position.clone();
-      projectile.mesh.position.addScaledVector(projectile.velocity, delta);
-      projectile.mesh.rotation.x += delta * 8;
-      const hitWall = this.collision.segmentBlocked(
-        previous.x,
-        previous.z,
-        projectile.mesh.position.x,
-        projectile.mesh.position.z,
-      );
-      const hitPlayer = projectile.mesh.position.distanceTo(playerPosition) < 0.75;
-      if (hitPlayer) {
-        this.onPlayerHit?.(projectile.damage);
+      const next = previous.clone().addScaledVector(projectile.velocity, delta);
+      const hitWall = this.collision.segmentBlocked(previous.x, previous.z, next.x, next.z);
+
+      if (hitWall) {
+        projectile.mesh.position.copy(next);
+        this.createHazard(next, projectile.damage * 0.32);
         this.removeProjectile(index);
-      } else if (hitWall || projectile.life <= 0) {
-        this.createHazard(projectile.mesh.position, projectile.damage * 0.32);
+        continue;
+      }
+
+      const playerHit = segmentSphereHit(previous, next, playerPosition, 0.75);
+      if (playerHit) {
+        projectile.mesh.position.copy(playerHit.point);
+        this.onPlayerHit?.(projectile.damage, previous.clone());
+        this.removeProjectile(index);
+        continue;
+      }
+
+      projectile.mesh.position.copy(next);
+      projectile.mesh.rotation.x += delta * 8;
+      if (projectile.life <= 0) {
+        this.createHazard(next, projectile.damage * 0.32);
         this.removeProjectile(index);
       }
     }
+
     for (let index = this.hazards.length - 1; index >= 0; index -= 1) {
       const hazard = this.hazards[index]!;
       hazard.life -= delta;
@@ -76,7 +86,7 @@ export class ProjectileSystem {
         hazard.mesh.position.z - playerPosition.z,
       );
       if (flatDistance < 1.6 && hazard.tick <= 0) {
-        this.onPlayerHit?.(hazard.damage);
+        this.onPlayerHit?.(hazard.damage, hazard.mesh.position.clone());
         hazard.tick = 0.65;
       }
       if (hazard.life <= 0) {
@@ -116,7 +126,7 @@ export class ProjectileSystem {
     this.projectiles.splice(index, 1);
   }
 
-  private createHazard(position: any, damage: number): void {
+  private createHazard(position: THREE.Vector3, damage: number): void {
     const mesh = new THREE.Mesh(
       new THREE.CircleGeometry(1.6, 12),
       this.materials.transparent(PALETTE.acid, 0.4),

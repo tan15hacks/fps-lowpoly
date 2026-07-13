@@ -7,6 +7,7 @@ import { LowPolyMaterialFactory, PALETTE } from '../visuals/LowPolyMaterialFacto
 import { PlayerCamera } from '../player/PlayerCamera';
 import { PlayerStats } from '../player/PlayerStats';
 import { damp, type LookInputSource } from '../player/controlMath';
+import { recoilMultiplier, weaponSwitchDuration } from '../utils/combatState';
 import { Weapon } from './Weapon';
 import { createHitscanRays, type HitscanRay } from './HitscanSystem';
 
@@ -39,6 +40,9 @@ export class WeaponManager {
   private disposed = false;
   private aimBlend = 0;
   private aimDirectionResolver?: AimDirectionResolver;
+  private pendingId?: WeaponId;
+  private switchRemaining = 0;
+  private switchDuration = 0;
   onShot?: (event: ShotEvent) => void;
   onChanged?: () => void;
 
@@ -75,26 +79,33 @@ export class WeaponManager {
     return this.weapons[this.activeId];
   }
 
+  isSwitching(): boolean {
+    return this.pendingId !== undefined;
+  }
+
   unlock(id: WeaponId): void {
     this.unlocked.add(id);
     this.switchTo(id);
   }
 
   switchTo(id: WeaponId): void {
-    if (this.disposed || !this.unlocked.has(id) || id === this.activeId) return;
-    this.models.get(this.activeId)!.visible = false;
+    if (this.disposed || !this.unlocked.has(id)) return;
+    const currentTarget = this.pendingId ?? this.activeId;
+    if (id === currentTarget) return;
+
     this.active().cancelReload();
-    this.activeId = id;
-    this.models.get(id)!.visible = true;
-    this.audio.play('ui');
-    this.onChanged?.();
+    this.pendingId = id;
+    this.switchDuration = weaponSwitchDuration(this.upgrades.level('switch'));
+    this.switchRemaining = this.switchDuration;
+    this.aimBlend = 0;
   }
 
   cycle(direction: number): void {
     const ids = (['pistol', 'smg', 'shotgun'] as WeaponId[]).filter((id) =>
       this.unlocked.has(id),
     );
-    const index = ids.indexOf(this.activeId);
+    const current = this.pendingId ?? this.activeId;
+    const index = ids.indexOf(current);
     this.switchTo(ids[(index + (direction > 0 ? 1 : -1) + ids.length) % ids.length]!);
   }
 
@@ -107,22 +118,28 @@ export class WeaponManager {
     lookSource: LookInputSource,
   ): void {
     if (this.disposed) return;
+
+    this.advanceSwitch(delta);
+    const switching = this.isSwitching();
     const weapon = this.active();
     const capacity = this.capacity(this.activeId);
     const reloadMultiplier =
       (1 + this.stats.permanent.reloadSpeed * 0.06) *
       this.upgrades.multiplier('reload', 0.15);
-    if (reload && weapon.startReload(reloadMultiplier)) this.audio.play('reload');
-    const step = weapon.update(delta, capacity, reloadMultiplier);
-    if (step && weapon.definition.shellReload) this.audio.play('reload');
 
-    const wantsFire = fire && (weapon.definition.automatic || !this.wasFireHeld);
+    if (!switching) {
+      if (reload && weapon.startReload(reloadMultiplier, capacity)) {
+        this.audio.play('reload');
+      }
+      const shellLoaded = weapon.update(delta, capacity, reloadMultiplier);
+      if (shellLoaded && weapon.definition.shellReload) this.audio.play('reload');
+    }
+
+    const wantsFire = !switching && fire && (weapon.definition.automatic || !this.wasFireHeld);
     if (wantsFire) {
+      weapon.interruptShellReloadForFire();
       if (weapon.fire(now)) {
-        const baseSpread =
-          weapon.definition.spread *
-          (aiming ? 0.55 : 1) *
-          this.upgrades.multiplier('recoil', -0.12);
+        const baseSpread = weapon.definition.spread * (aiming ? 0.55 : 1);
         const origin = this.camera.getWorldPosition(new THREE.Vector3());
         let forward = this.cameraController.forward();
         if (
@@ -152,28 +169,36 @@ export class WeaponManager {
         );
         this.onShot?.({ weapon: this.activeId, rays, baseDamage: weapon.definition.damage });
         this.audio.play(this.activeId);
+        const baseRecoil =
+          this.activeId === 'shotgun' ? 0.65 : this.activeId === 'smg' ? 0.18 : 0.25;
         this.cameraController.addRecoil(
-          this.activeId === 'shotgun' ? 0.65 : this.activeId === 'smg' ? 0.18 : 0.25,
+          baseRecoil * recoilMultiplier(this.upgrades.level('recoil')),
         );
         this.flashMuzzle();
       } else if (weapon.magazine <= 0 && now - weapon.lastShotAt > 0.25) {
         this.audio.play('empty');
         weapon.lastShotAt = now;
-        if (this.settings.autoReload) weapon.startReload(reloadMultiplier);
+        if (this.settings.autoReload) {
+          weapon.startReload(reloadMultiplier, capacity);
+        }
       }
     }
 
-    this.aimBlend = damp(this.aimBlend, aiming ? 1 : 0, 14, delta);
+    const effectiveAiming = aiming && !switching;
+    this.aimBlend = damp(this.aimBlend, effectiveAiming ? 1 : 0, 14, delta);
     const model = this.models.get(this.activeId)!;
     this.swayTime += delta * (fire ? 11 : 5);
     const recoil = this.activeId === 'shotgun' ? 0.08 : 0.035;
     const swayScale = 1 - this.aimBlend * 0.7;
+    const switchProgress = this.switchDuration > 0 ? this.switchRemaining / this.switchDuration : 0;
+    const switchDrop = switching ? Math.sin((1 - switchProgress) * Math.PI * 0.5) * 0.22 : 0;
     model.position.x =
       THREE.MathUtils.lerp(0.34, 0.035, this.aimBlend) +
       Math.sin(this.swayTime) * 0.006 * swayScale;
     model.position.y =
       THREE.MathUtils.lerp(-0.28, -0.215, this.aimBlend) +
-      Math.abs(Math.cos(this.swayTime * 0.5)) * 0.006 * swayScale;
+      Math.abs(Math.cos(this.swayTime * 0.5)) * 0.006 * swayScale -
+      switchDrop;
     model.position.z =
       THREE.MathUtils.lerp(-0.62, -0.56, this.aimBlend) +
       Math.min(0.12, now - weapon.lastShotAt < 0.09 ? recoil : 0);
@@ -204,6 +229,9 @@ export class WeaponManager {
     this.onShot = undefined;
     this.onChanged = undefined;
     this.aimDirectionResolver = undefined;
+    this.pendingId = undefined;
+    this.switchRemaining = 0;
+    this.switchDuration = 0;
     this.wasFireHeld = false;
     this.muzzle = undefined;
     for (const weapon of Object.values(this.weapons)) weapon.cancelReload();
@@ -213,6 +241,20 @@ export class WeaponManager {
       model.clear?.();
     });
     this.models.clear();
+  }
+
+  private advanceSwitch(delta: number): void {
+    if (!this.pendingId) return;
+    this.switchRemaining = Math.max(0, this.switchRemaining - Math.max(0, delta));
+    if (this.switchRemaining > 0) return;
+
+    const next = this.pendingId;
+    this.pendingId = undefined;
+    this.models.get(this.activeId)!.visible = false;
+    this.activeId = next;
+    this.models.get(next)!.visible = true;
+    this.audio.play('ui');
+    this.onChanged?.();
   }
 
   private flashMuzzle(): void {

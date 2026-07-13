@@ -34,6 +34,7 @@ import type {
   WeaponId,
 } from '../types/game';
 import { calculateWeaponDamage } from '../utils/combatMath';
+import { cappedHealingRequest, lifeStealCap } from '../utils/combatState';
 import { calculateRunCredits } from '../utils/rewards';
 import { updateAchievements } from '../upgrades/AchievementManager';
 import { UnavailableAdService } from '../monetization/AdService';
@@ -63,6 +64,7 @@ interface ActiveRun {
   lastKillAt: number;
   combo: number;
   damageAtWaveStart: number;
+  lifeStealHealedThisWave: number;
   deathDialog?: HTMLElement;
 }
 
@@ -279,6 +281,7 @@ export class Game {
         lastKillAt: 0,
         combo: 0,
         damageAtWaveStart: 0,
+        lifeStealHealedThisWave: 0,
       };
       this.wireRun(this.run);
       this.ui.hideRoot();
@@ -293,8 +296,8 @@ export class Game {
 
   private wireRun(run: ActiveRun): void {
     run.weapons.onShot = (event) => this.handleShot(event);
-    run.projectiles.onPlayerHit = (damage) =>
-      this.damagePlayer(damage, run.player.root.position);
+    run.projectiles.onPlayerHit = (damage, source) =>
+      this.damagePlayer(damage, source);
     run.enemies.onPlayerDamage = (damage, source) => this.damagePlayer(damage, source);
     run.enemies.onEnemyKilled = (enemy) => this.enemyKilled(enemy.kind);
     run.enemies.onBossHealth = (ratio, name) => {
@@ -307,6 +310,7 @@ export class Game {
       run.enemies.spawn(kind, run.waves.wave, run.difficulty);
     run.waves.onWaveStarted = (definition) => {
       run.damageAtWaveStart = run.stats.damageReceived;
+      run.lifeStealHealedThisWave = 0;
       run.outpost.beginWave();
       this.effects.announce(
         definition.boss ? `BOSS WAVE ${definition.wave}` : `WAVE ${definition.wave}`,
@@ -500,7 +504,15 @@ export class Game {
       }
       const lifeSteal = run.upgrades.level('lifesteal');
       if (lifeSteal > 0) {
-        run.playerStats.heal(Math.min(2.5, hit.damage * 0.02 * lifeSteal));
+        const request = cappedHealingRequest(
+          hit.damage * 0.02 * lifeSteal,
+          run.lifeStealHealedThisWave,
+          lifeStealCap(lifeSteal),
+        );
+        if (request.allowed > 0) {
+          const healed = run.playerStats.heal(request.allowed);
+          run.lifeStealHealedThisWave += healed;
+        }
       }
       if (
         run.upgrades.level('ricochet') > 0 &&
@@ -537,7 +549,9 @@ export class Game {
     run.player.cameraController.addShake(Math.min(1, dealt / 35));
     this.audio.play('damage');
     if (this.save.value.settings.vibration && navigator.vibrate) navigator.vibrate(35);
-    const direction = run.player.root.position.clone().sub(source).normalize();
+    const direction = run.player.root.position.clone().sub(source);
+    if (direction.lengthSq() <= 0.000001) direction.set(0, 0, 1);
+    else direction.normalize();
     this.bus.emit('damage-direction', direction);
   }
 
