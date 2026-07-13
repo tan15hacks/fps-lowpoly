@@ -28,7 +28,10 @@ export class Weapon {
     return result.fired;
   }
 
-  startReload(capacity: number, reloadMultiplier = 1): boolean {
+  startReload(
+    reloadMultiplier = 1,
+    capacity = this.definition.magazine,
+  ): boolean {
     const safeCapacity = Math.max(this.definition.magazine, Math.floor(capacity));
     if (
       this.reloadRemaining > 0 ||
